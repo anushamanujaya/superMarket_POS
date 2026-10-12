@@ -1,0 +1,332 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ───────── Identity & access ─────────
+
+model Organization {
+  id            String     @id @default(uuid()) @db.Uuid
+  name          String
+  baseCurrency  String     @default("LKR") @db.VarChar(3)
+  defaultLocale String     @default("en")
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  branches      Branch[]
+  users         User[]
+  roles         Role[]
+  categories    Category[]
+  brands        Brand[]
+  products      Product[]
+  taxClasses    TaxClass[]
+  taxRates      TaxRate[]
+}
+
+model Branch {
+  id            String        @id @default(uuid()) @db.Uuid
+  orgId         String        @db.Uuid
+  code          String
+  name          String
+  address       String?
+  timezone      String        @default("Asia/Colombo")
+  currency      String        @default("LKR") @db.VarChar(3)
+  invoicePrefix String
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  deletedAt     DateTime?
+  org           Organization  @relation(fields: [orgId], references: [id])
+  userRoles     UserRole[]
+  branchPrices  BranchPrice[]
+
+  @@unique([orgId, code])
+}
+
+model User {
+  id           String         @id @default(uuid()) @db.Uuid
+  orgId        String         @db.Uuid
+  name         String
+  email        String?
+  phone        String?
+  passwordHash String?
+  pinHash      String?
+  /// Short public identifier used with PIN login (e.g. staff number)
+  staffCode    String?
+  locale       String         @default("en")
+  isActive     Boolean        @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  deletedAt    DateTime?
+  org          Organization   @relation(fields: [orgId], references: [id])
+  roles        UserRole[]
+  tokens       RefreshToken[]
+  audits       AuditLog[]
+
+  @@unique([orgId, email])
+  @@unique([orgId, staffCode])
+}
+
+model Role {
+  id          String           @id @default(uuid()) @db.Uuid
+  orgId       String           @db.Uuid
+  name        String
+  isSystem    Boolean          @default(false)
+  org         Organization     @relation(fields: [orgId], references: [id])
+  permissions RolePermission[]
+  users       UserRole[]
+
+  @@unique([orgId, name])
+}
+
+model Permission {
+  id    String           @id @default(uuid()) @db.Uuid
+  key   String           @unique
+  label String
+  roles RolePermission[]
+}
+
+model RolePermission {
+  roleId       String     @db.Uuid
+  permissionId String     @db.Uuid
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+model UserRole {
+  id       String  @id @default(uuid()) @db.Uuid
+  userId   String  @db.Uuid
+  roleId   String  @db.Uuid
+  /// null = all branches
+  branchId String? @db.Uuid
+  user     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role     Role    @relation(fields: [roleId], references: [id])
+  branch   Branch? @relation(fields: [branchId], references: [id])
+
+  @@unique([userId, roleId, branchId])
+  @@index([userId])
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  tokenHash String    @unique
+  deviceId  String?
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+enum AuditActor {
+  USER
+  AI
+  SYSTEM
+}
+
+/// Append-only. Never updated or deleted by application code.
+model AuditLog {
+  id        String     @id @default(uuid()) @db.Uuid
+  orgId     String     @db.Uuid
+  branchId  String?    @db.Uuid
+  userId    String?    @db.Uuid
+  actor     AuditActor @default(USER)
+  action    String
+  entity    String
+  entityId  String?
+  before    Json?
+  after     Json?
+  ip        String?
+  createdAt DateTime   @default(now())
+  user      User?      @relation(fields: [userId], references: [id])
+
+  @@index([orgId, createdAt])
+  @@index([entity, entityId])
+  @@index([action])
+}
+
+// ───────── Catalog ─────────
+
+model Category {
+  id        String       @id @default(uuid()) @db.Uuid
+  orgId     String       @db.Uuid
+  parentId  String?      @db.Uuid
+  /// { en, si, ta }
+  name      Json
+  sortOrder Int          @default(0)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  deletedAt DateTime?
+  org       Organization @relation(fields: [orgId], references: [id])
+  parent    Category?    @relation("CategoryTree", fields: [parentId], references: [id])
+  children  Category[]   @relation("CategoryTree")
+  products  Product[]
+
+  @@index([orgId, parentId])
+}
+
+model Brand {
+  id        String       @id @default(uuid()) @db.Uuid
+  orgId     String       @db.Uuid
+  name      String
+  deletedAt DateTime?
+  org       Organization @relation(fields: [orgId], references: [id])
+  products  Product[]
+
+  @@unique([orgId, name])
+}
+
+model UnitOfMeasure {
+  id            String    @id @default(uuid()) @db.Uuid
+  code          String    @unique
+  name          String
+  allowFraction Boolean   @default(false)
+  products      Product[]
+}
+
+enum ProductType {
+  STANDARD
+  WEIGHTED
+  BUNDLE
+  SERVICE
+}
+
+model Product {
+  id           String           @id @default(uuid()) @db.Uuid
+  orgId        String           @db.Uuid
+  sku          String
+  /// { en, si, ta }
+  name         Json
+  categoryId   String           @db.Uuid
+  brandId      String?          @db.Uuid
+  uomId        String           @db.Uuid
+  taxClassId   String           @db.Uuid
+  type         ProductType      @default(STANDARD)
+  trackBatches Boolean          @default(false)
+  trackExpiry  Boolean          @default(false)
+  trackSerial  Boolean          @default(false)
+  isActive     Boolean          @default(true)
+  imageUrl     String?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  deletedAt    DateTime?
+  org          Organization     @relation(fields: [orgId], references: [id])
+  category     Category         @relation(fields: [categoryId], references: [id])
+  brand        Brand?           @relation(fields: [brandId], references: [id])
+  uom          UnitOfMeasure    @relation(fields: [uomId], references: [id])
+  taxClass     TaxClass         @relation(fields: [taxClassId], references: [id])
+  variants     ProductVariant[]
+
+  @@unique([orgId, sku])
+  @@index([categoryId])
+}
+
+model ProductVariant {
+  id           String         @id @default(uuid()) @db.Uuid
+  productId    String         @db.Uuid
+  sku          String
+  attributes   Json           @default("{}")
+  costMinor    Int            @default(0)
+  priceMinor   Int
+  isDefault    Boolean        @default(true)
+  deletedAt    DateTime?
+  product      Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  barcodes     Barcode[]
+  branchPrices BranchPrice[]
+  priceHistory PriceHistory[]
+
+  @@unique([productId, sku])
+}
+
+enum BarcodeKind {
+  EAN13
+  PLU
+  PRICE_EMBEDDED
+  INTERNAL
+}
+
+model Barcode {
+  id        String         @id @default(uuid()) @db.Uuid
+  orgId     String         @db.Uuid
+  variantId String         @db.Uuid
+  code      String
+  kind      BarcodeKind    @default(EAN13)
+  packQty   Decimal        @default(1) @db.Decimal(14, 3)
+  variant   ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, code])
+  @@index([variantId])
+}
+
+model BranchPrice {
+  id            String         @id @default(uuid()) @db.Uuid
+  variantId     String         @db.Uuid
+  branchId      String         @db.Uuid
+  priceMinor    Int
+  effectiveFrom DateTime       @default(now())
+  effectiveTo   DateTime?
+  variant       ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  branch        Branch         @relation(fields: [branchId], references: [id])
+
+  @@index([variantId, branchId])
+}
+
+model PriceHistory {
+  id        String         @id @default(uuid()) @db.Uuid
+  variantId String         @db.Uuid
+  branchId  String?        @db.Uuid
+  oldMinor  Int
+  newMinor  Int
+  changedBy String?        @db.Uuid
+  createdAt DateTime       @default(now())
+  variant   ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  @@index([variantId, createdAt])
+}
+
+// ───────── Tax ─────────
+
+model TaxClass {
+  id       String       @id @default(uuid()) @db.Uuid
+  orgId    String       @db.Uuid
+  name     String
+  org      Organization @relation(fields: [orgId], references: [id])
+  products Product[]
+  rules    TaxRule[]
+
+  @@unique([orgId, name])
+}
+
+model TaxRate {
+  id               String       @id @default(uuid()) @db.Uuid
+  orgId            String       @db.Uuid
+  code             String
+  name             String
+  /// Parts per million: 18% = 180000
+  ratePpm          Int
+  isCompound       Boolean      @default(false)
+  inclusiveDefault Boolean      @default(true)
+  validFrom        DateTime     @default(now())
+  validTo          DateTime?
+  org              Organization @relation(fields: [orgId], references: [id])
+  rules            TaxRule[]
+
+  @@index([orgId, code])
+}
+
+model TaxRule {
+  id         String   @id @default(uuid()) @db.Uuid
+  taxClassId String   @db.Uuid
+  taxRateId  String   @db.Uuid
+  taxClass   TaxClass @relation(fields: [taxClassId], references: [id], onDelete: Cascade)
+  taxRate    TaxRate  @relation(fields: [taxRateId], references: [id])
+
+  @@unique([taxClassId, taxRateId])
+}
