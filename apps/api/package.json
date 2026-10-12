@@ -5,7 +5,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/main.js",
-    "dev": "tsx watch src/main.ts",
+    "dev": "node --watch -r @swc-node/register src/main.ts",
     "lint": "eslint src test",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
@@ -37,6 +37,7 @@
   },
   "devDependencies": {
     "@nestjs/testing": "^11.2.7",
+    "@swc-node/register": "^1.12.1",
     "@swc/core": "^1.16.18",
     "@types/cookie-parser": "^1.4.10",
     "@types/express": "^5.0.6",
