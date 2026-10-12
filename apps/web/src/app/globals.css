@@ -1,0 +1,9 @@
+@import 'tailwindcss';
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  font-size: 17px;
+}
+body {
+  @apply bg-white text-slate-900 dark:bg-slate-950 dark:text-slate-100;
+}
