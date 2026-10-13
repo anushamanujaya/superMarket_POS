@@ -4,24 +4,25 @@ import { useRouter } from 'next/navigation';
 import { ReactNode, useEffect, useState } from 'react';
 import { PrefsBar } from '@/components/PrefsBar';
 import { api, logout, tokenStore } from '@/lib/api';
+import { AuthProvider, Me } from '@/lib/auth';
 import { usePrefs } from '@/lib/prefs';
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
   const { t } = usePrefs();
   const router = useRouter();
-  const [ready, setReady] = useState(false);
+  const [me, setMe] = useState<Me | null>(null);
 
   useEffect(() => {
     if (!tokenStore.get()) {
       router.replace('/login');
       return;
     }
-    api('/auth/me')
-      .then(() => setReady(true))
+    api<Me>('/auth/me')
+      .then(setMe)
       .catch(() => router.replace('/login'));
   }, [router]);
 
-  if (!ready) return <p className="p-6">{t.loading}</p>;
+  if (!me) return <p className="p-6">{t.loading}</p>;
   return (
     <div className="min-h-screen">
       <header className="flex items-center justify-between border-b border-slate-200 px-6 py-3 dark:border-slate-800">
@@ -32,6 +33,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
           </Link>
         </nav>
         <div className="flex items-center gap-3">
+          <span className="text-sm opacity-70">{me.name}</span>
           <PrefsBar />
           <button
             onClick={async () => {
@@ -44,7 +46,9 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
           </button>
         </div>
       </header>
-      <main className="p-6">{children}</main>
+      <main className="p-6">
+        <AuthProvider me={me}>{children}</AuthProvider>
+      </main>
     </div>
   );
 }

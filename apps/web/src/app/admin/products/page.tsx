@@ -1,6 +1,7 @@
 'use client';
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
+import { useAuth } from '@/lib/auth';
 import { formatMoney, toMinor } from '@/lib/money';
 import { usePrefs } from '@/lib/prefs';
 
@@ -21,6 +22,8 @@ const label = (n: Named['name']) => (typeof n === 'string' ? n : n.en);
 
 export default function ProductsPage() {
   const { t, locale } = usePrefs();
+  const { can } = useAuth();
+  const canWrite = can('catalog.write');
   const [items, setItems] = useState<Product[]>([]);
   const [q, setQ] = useState('');
   const [loading, setLoading] = useState(true);
@@ -122,12 +125,14 @@ export default function ProductsPage() {
           placeholder={t.search}
           className={`${input} min-w-72 flex-1`}
         />
-        <button
-          onClick={() => setAdding(!adding)}
-          className="rounded bg-emerald-600 px-4 py-2 font-semibold text-white"
-        >
-          {t.addProduct}
-        </button>
+        {canWrite && (
+          <button
+            onClick={() => setAdding(!adding)}
+            className="rounded bg-emerald-600 px-4 py-2 font-semibold text-white"
+          >
+            {t.addProduct}
+          </button>
+        )}
       </div>
       {err && (
         <p role="alert" className="text-red-600">
@@ -135,7 +140,7 @@ export default function ProductsPage() {
         </p>
       )}
 
-      {adding && (
+      {canWrite && adding && (
         <form
           onSubmit={create}
           className="grid grid-cols-1 gap-3 rounded border border-slate-200 p-4 sm:grid-cols-3 dark:border-slate-800"
@@ -205,9 +210,11 @@ export default function ProductsPage() {
                   {p.variants[0] && formatMoney(p.variants[0].priceMinor)}
                 </td>
                 <td className="text-right">
-                  <button onClick={() => remove(p.id)} className="text-red-600 underline">
-                    {t.delete}
-                  </button>
+                  {canWrite && (
+                    <button onClick={() => remove(p.id)} className="text-red-600 underline">
+                      {t.delete}
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}
